@@ -435,9 +435,7 @@ def _resident_audio_holds_no_vram(backend) -> bool:
         # Both sides check the type. Only native audio reads the placement
         # preference, so a marker on anything else is wrong, and trusting it
         # here would start training beside a model still holding the card.
-        return entry.get("audio_type") in NATIVE_AUDIO_TYPES and bool(
-            entry.get("audio_cpu", False)
-        )
+        return entry.get("audio_type") in NATIVE_AUDIO_TYPES and bool(entry.get("audio_cpu", False))
     except Exception:  # noqa: BLE001 - a probe must never fail the release it precedes
         return False
 

@@ -141,9 +141,7 @@ def _backend(audio_cpu, audio_type = "higgs_tts2"):
 
 
 def test_a_resident_gpu_audio_model_does_not_satisfy_a_cpu_request():
-    assert not ri._resident_audio_placement_matches(
-        _backend(audio_cpu = False), _request("cpu")
-    )
+    assert not ri._resident_audio_placement_matches(_backend(audio_cpu = False), _request("cpu"))
 
 
 def test_a_resident_cpu_audio_model_satisfies_the_same_request_again():
@@ -152,12 +150,8 @@ def test_a_resident_cpu_audio_model_satisfies_the_same_request_again():
 
 def test_a_model_loaded_before_this_existed_is_read_as_gpu():
     """No recorded key means the load predates the option, which placed on GPU."""
-    assert ri._resident_audio_placement_matches(
-        _backend(audio_cpu = None), _request("auto")
-    )
-    assert not ri._resident_audio_placement_matches(
-        _backend(audio_cpu = None), _request("cpu")
-    )
+    assert ri._resident_audio_placement_matches(_backend(audio_cpu = None), _request("auto"))
+    assert not ri._resident_audio_placement_matches(_backend(audio_cpu = None), _request("cpu"))
 
 
 def test_a_non_audio_model_keeps_the_shortcut():
@@ -233,9 +227,7 @@ def test_a_load_in_flight_is_never_exempted():
     """Its placement is not recorded yet, and it is already taking memory."""
     from routes.training_vram import _resident_audio_holds_no_vram
     assert not _resident_audio_holds_no_vram(
-        _inference_backend(
-            "x/y", {"audio_type": "higgs_tts2", "audio_cpu": True}, loading = ("a/b",)
-        )
+        _inference_backend("x/y", {"audio_type": "higgs_tts2", "audio_cpu": True}, loading = ("a/b",))
     )
 
 
@@ -243,7 +235,6 @@ def test_the_shortcut_reads_the_resident_model_not_the_requested_config():
     """It runs ahead of config resolution, so reading a config there raised
     UnboundLocalError and turned every repeat safetensors load into a 500."""
     import inspect
-
     assert list(inspect.signature(ri._resident_audio_placement_matches).parameters) == [
         "backend",
         "request",
