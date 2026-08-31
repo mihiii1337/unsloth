@@ -249,3 +249,77 @@ def test_minimax_music_explains_that_cpu_was_chosen_rather_than_missing(monkeypa
 
     with pytest.raises(RuntimeError, match = "cannot be loaded into CPU RAM"):
         backend.load_model(config)
+
+
+# --- a caller with no preference must not move a placed model ---------------
+
+
+def test_a_caller_that_sends_no_device_leaves_the_placement_alone(monkeypatch):
+    """``/v1/audio/transcriptions`` sends none. Treating that as "auto" pulled a
+    CPU model back onto the GPU, and the next dictation pulled it off again:
+    two full reloads per alternation, and VRAM the user asked us not to take."""
+    from core.inference import stt_sidecar
+
+    monkeypatch.setattr(stt_sidecar, "ensure_stt_available", lambda: None)
+    monkeypatch.setattr(stt_sidecar, "resolve_model_id", lambda model: model or "small")
+    monkeypatch.setattr(
+        stt_sidecar,
+        "_pick_device",
+        lambda preference = None: ("cpu", "float32") if preference == "cpu" else ("cuda", "float16"),
+    )
+
+    sidecar = stt_sidecar.WhisperSttSidecar(keep_alive_seconds = 0.0)
+    builds: list[str] = []
+    monkeypatch.setattr(
+        sidecar, "_build_model", lambda p, device, dtype, c: builds.append(device) or object()
+    )
+    monkeypatch.setattr(sidecar, "_release_engine_locked", lambda: True)
+    monkeypatch.setattr(
+        sidecar,
+        "_ensure_model_downloaded",
+        lambda model_id, use_resident = True: stt_sidecar._CachedSttSnapshot(
+            path = None if (sidecar._engine is not None and use_resident) else "/snapshots/small",
+            is_multilingual = True,
+        ),
+    )
+
+    sidecar.load("small", device = "cpu")   # Voice settings: the user picked CPU
+    sidecar.load("small", device = None)    # OpenAI-compatible route: no opinion
+    sidecar.load("small", device = "cpu")   # the next dictation
+
+    assert builds == ["cpu"], "only the first load should have built anything"
+    assert sidecar._device == "cpu"
+
+
+def test_an_explicit_change_still_reloads_after_a_no_opinion_call(monkeypatch):
+    """No opinion must not also freeze the placement: the setting still moves it."""
+    from core.inference import stt_sidecar
+
+    monkeypatch.setattr(stt_sidecar, "ensure_stt_available", lambda: None)
+    monkeypatch.setattr(stt_sidecar, "resolve_model_id", lambda model: model or "small")
+    monkeypatch.setattr(
+        stt_sidecar,
+        "_pick_device",
+        lambda preference = None: ("cpu", "float32") if preference == "cpu" else ("cuda", "float16"),
+    )
+
+    sidecar = stt_sidecar.WhisperSttSidecar(keep_alive_seconds = 0.0)
+    builds: list[str] = []
+    monkeypatch.setattr(
+        sidecar, "_build_model", lambda p, device, dtype, c: builds.append(device) or object()
+    )
+    monkeypatch.setattr(sidecar, "_release_engine_locked", lambda: True)
+    monkeypatch.setattr(
+        sidecar,
+        "_ensure_model_downloaded",
+        lambda model_id, use_resident = True: stt_sidecar._CachedSttSnapshot(
+            path = None if (sidecar._engine is not None and use_resident) else "/snapshots/small",
+            is_multilingual = True,
+        ),
+    )
+
+    sidecar.load("small", device = "cpu")
+    sidecar.load("small", device = None)
+    sidecar.load("small", device = "auto")
+
+    assert builds == ["cpu", "cuda"]

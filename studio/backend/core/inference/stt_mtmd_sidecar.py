@@ -559,6 +559,10 @@ class MtmdSttSidecar:
         # Whether the resident server was launched with the GPU pinned off for
         # training. Kept so a dictation after the run does not stay on CPU.
         self._gpu_disabled = False
+        # The user's standing CPU choice, tracked apart from _gpu_disabled so
+        # training still drives a restart while their preference survives a
+        # caller that sends none.
+        self._forced_cpu = False
         self._load_cancel_event: Optional[threading.Event] = None
         self._load_owner_cancel_event: Optional[threading.Event] = None
         self._update_in_progress = False
@@ -826,7 +830,7 @@ class MtmdSttSidecar:
                 binary,
                 request_cancel_event,
                 path_revision = path_revision,
-                force_cpu = audio_device_forces_cpu(device),
+                device = device,
             )
 
     def _load_locked(
@@ -836,14 +840,27 @@ class MtmdSttSidecar:
         request_cancel_event: Optional[threading.Event] = None,
         *,
         path_revision: Optional[int] = None,
-        force_cpu: bool = False,
+        device: Optional[str] = None,
     ) -> None:
+        from core.inference.audio_device import audio_device_forces_cpu
+
         if path_revision is None:
             from utils.llama_cpp_path_settings import custom_llama_cpp_path_revision
             path_revision = custom_llama_cpp_path_revision()
         with self._lock:
+            # None is no opinion: keep the standing choice (the server default
+            # when nothing is running) so a caller that sends none cannot
+            # restart the server onto the other device.
+            if device is None:
+                forced_cpu = (
+                    self._forced_cpu
+                    if self._process_alive()
+                    else audio_device_forces_cpu(None)
+                )
+            else:
+                forced_cpu = audio_device_forces_cpu(device)
             # Both mean "no offload", which _gpu_disabled already tracks.
-            training = _training_active() or force_cpu
+            training = _training_active() or forced_cpu
             if (
                 self._process_alive()
                 and self._model_id == model_id
@@ -894,7 +911,7 @@ class MtmdSttSidecar:
             # check cannot come back to cancel this load. Publishing _loading
             # first covers the other order, so between them every training start
             # either cancels this load or is seen by it.
-            training = _training_active() or force_cpu
+            training = _training_active() or forced_cpu
         try:
             sock, port = self._reserve_free_port()
             cmd = [
@@ -958,6 +975,7 @@ class MtmdSttSidecar:
                 self._model_id = model_id
                 self._binary_path_revision = path_revision
                 self._gpu_disabled = training
+                self._forced_cpu = forced_cpu
                 self._generation += 1
                 self._schedule_idle_unload_locked()
         finally:

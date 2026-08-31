@@ -1472,10 +1472,11 @@ class WhisperSttSidecar:
         """Load (or switch to) a model, reusing it if already resident.
 
         ``device`` is the user's device preference (``auto``/``cpu``/``gpu``, see
-        ``core.inference.audio_device``); ``None`` takes the server default. A
-        resident model loaded under a different preference is released and
-        reloaded, because the preference is a request about where the weights sit
-        and reusing the old placement would silently ignore it.
+        ``core.inference.audio_device``). An explicit one that differs from the
+        resident model's reloads it, or the setting would be silently ignored.
+        ``None`` means no opinion: it takes the server default for a fresh load
+        and reuses whatever is resident, so a caller that never sends one cannot
+        move a model another surface placed.
 
         Returns a ``(model, processor)`` pair.
         """
@@ -1484,14 +1485,20 @@ class WhisperSttSidecar:
         if request_cancel_event is not None and request_cancel_event.is_set():
             raise SttTranscriptionCancelledError("Transcription cancelled.")
         model_id = resolve_model_id(model)
-        preference = audio_device_default() if device is None else normalize_audio_device(device)
+        # None is "no opinion", not "auto". A caller that never sends one (the
+        # OpenAI-compatible route) must not drag a model off the device another
+        # surface asked for, or the two thrash a reload apiece.
+        requested = None if device is None else normalize_audio_device(device)
+        preference = audio_device_default() if requested is None else requested
         with self._lock:
             if request_cancel_event is not None and request_cancel_event.is_set():
                 raise SttTranscriptionCancelledError("Transcription cancelled.")
             ensure_stt_available()
             self._release_dead_engine_locked()
             placement_matches = (
-                self._device_preference is None or self._device_preference == preference
+                requested is None
+                or self._device_preference is None
+                or self._device_preference == requested
             )
             reusable = self._engine is not None and self._model_id == model_id and placement_matches
             if reusable and not self._is_survivor_locked():
