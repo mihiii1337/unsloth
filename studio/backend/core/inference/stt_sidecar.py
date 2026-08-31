@@ -980,7 +980,6 @@ def _pick_device(preference: Optional[str] = None):
     and the caller's CPU retry still covers a card that cannot take the model.
     """
     from core.inference.audio_device import audio_device_forces_cpu
-
     try:
         import torch
 
@@ -1409,7 +1408,9 @@ class WhisperSttSidecar:
         return worker
 
     def _ensure_model_downloaded(
-        self, model_id: str, use_resident: bool = True
+        self,
+        model_id: str,
+        use_resident: bool = True,
     ) -> _CachedSttSnapshot:
         """Validate the local snapshot before decode or model replacement.
 
@@ -1429,9 +1430,7 @@ class WhisperSttSidecar:
         """
         model_id = resolve_model_id(model_id)
         with self._lock:
-            reusable = (
-                use_resident and self._engine is not None and self._model_id == model_id
-            )
+            reusable = use_resident and self._engine is not None and self._model_id == model_id
             if reusable and not self._is_survivor_locked():
                 resident_model = (
                     self._engine[0] if isinstance(self._engine, (tuple, list)) else self._engine
@@ -1485,9 +1484,7 @@ class WhisperSttSidecar:
         if request_cancel_event is not None and request_cancel_event.is_set():
             raise SttTranscriptionCancelledError("Transcription cancelled.")
         model_id = resolve_model_id(model)
-        preference = (
-            audio_device_default() if device is None else normalize_audio_device(device)
-        )
+        preference = audio_device_default() if device is None else normalize_audio_device(device)
         with self._lock:
             if request_cancel_event is not None and request_cancel_event.is_set():
                 raise SttTranscriptionCancelledError("Transcription cancelled.")
@@ -1496,9 +1493,7 @@ class WhisperSttSidecar:
             placement_matches = (
                 self._device_preference is None or self._device_preference == preference
             )
-            reusable = (
-                self._engine is not None and self._model_id == model_id and placement_matches
-            )
+            reusable = self._engine is not None and self._model_id == model_id and placement_matches
             if reusable and not self._is_survivor_locked():
                 self._schedule_idle_unload_locked()
                 return self._engine
@@ -1513,9 +1508,7 @@ class WhisperSttSidecar:
                 self._raise_if_load_cancelled(cancel_event)
                 # The resident shortcut returns no path, and this load
                 # replaces that model anyway.
-                cached = self._ensure_model_downloaded(
-                    model_id, use_resident = placement_matches
-                )
+                cached = self._ensure_model_downloaded(model_id, use_resident = placement_matches)
                 snapshot_path = cached.path
                 if snapshot_path is None:
                     raise SttModelNotDownloadedError(

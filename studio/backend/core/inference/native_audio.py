@@ -807,7 +807,6 @@ class NativeAudioBackend:
             # CPU was chosen, not missing. The generic message would send a
             # user with a working card looking for one.
             from core.inference.audio_device import audio_device_forces_cpu
-
             if audio_device_forces_cpu(self.device_preference):
                 raise RuntimeError(
                     "MiniMax Music 3 cannot be loaded into CPU RAM: its official local "

@@ -81,9 +81,7 @@ def _torch_with_cuda(monkeypatch):
         float16 = "float16",
         float32 = "float32",
         cuda = types.SimpleNamespace(is_available = lambda: True),
-        backends = types.SimpleNamespace(
-            mps = types.SimpleNamespace(is_available = lambda: False)
-        ),
+        backends = types.SimpleNamespace(mps = types.SimpleNamespace(is_available = lambda: False)),
     )
     monkeypatch.setitem(sys.modules, "torch", torch)
     return torch
@@ -100,7 +98,7 @@ def test_cpu_is_honoured_on_a_machine_with_a_working_gpu(monkeypatch):
 
 
 def test_auto_and_gpu_both_still_detect_the_accelerator(monkeypatch):
-    """"gpu" is not a separate placement: detection already prefers the card."""
+    """ "gpu" is not a separate placement: detection already prefers the card."""
     from core.inference import stt_sidecar
 
     _torch_with_cuda(monkeypatch)
@@ -205,7 +203,12 @@ def test_the_registry_hands_the_preference_to_the_engines_sidecar(monkeypatch):
     seen: dict = {}
 
     class _Sidecar:
-        def load(self, model, request_cancel_event = None, device = None):
+        def load(
+            self,
+            model,
+            request_cancel_event = None,
+            device = None,
+        ):
             seen["model"] = model
             seen["device"] = device
 

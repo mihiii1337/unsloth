@@ -88,9 +88,7 @@ def test_load_releases_the_other_engines_after_the_target_loads(monkeypatch):
             f"unload:{name}"
         )
     target = sidecars["mtmd"]
-    target.load = lambda model, request_cancel_event = None, device = None: order.append(
-        "load:mtmd"
-    )
+    target.load = lambda model, request_cancel_event = None, device = None: order.append("load:mtmd")
     monkeypatch.setattr(stt_registry, "sidecar_for", lambda name: sidecars[name])
 
     stt_registry.load("qwen3-asr-0.6b", "mtmd")
@@ -236,7 +234,11 @@ def test_a_failed_load_leaves_the_engine_the_user_was_using(monkeypatch):
     """The sidecars order preflight before release for this reason; so does the registry."""
     sidecars = {name: _Sidecar(name) for name in stt_registry.STT_ENGINES}
 
-    def refuse(model, request_cancel_event = None, device = None):
+    def refuse(
+        model,
+        request_cancel_event = None,
+        device = None,
+    ):
         raise RuntimeError("STT model 'x' is not downloaded.")
 
     sidecars["mtmd"].load = refuse

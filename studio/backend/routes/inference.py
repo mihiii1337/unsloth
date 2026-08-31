@@ -17101,9 +17101,7 @@ async def stt_load(
     )
     try:
         await asyncio.to_thread(
-            functools.partial(
-                load_stt, payload.model, engine, cancel_event, device = payload.device
-            )
+            functools.partial(load_stt, payload.model, engine, cancel_event, device = payload.device)
         )
     except SttModelNotDownloadedError as e:
         raise HTTPException(status_code = 409, detail = str(e))
@@ -17195,9 +17193,7 @@ async def _transcribe_audio_bytes(
 ) -> JSONResponse:
     """Run STT for already-decoded request bytes."""
     return JSONResponse(
-        content = await _transcribe_audio_result(
-            raw, model, language, fast, engine, request, device
-        )
+        content = await _transcribe_audio_result(raw, model, language, fast, engine, request, device)
     )
 
 
