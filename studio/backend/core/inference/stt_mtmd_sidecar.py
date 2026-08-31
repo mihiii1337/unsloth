@@ -853,9 +853,7 @@ class MtmdSttSidecar:
             # restart the server onto the other device.
             if device is None:
                 forced_cpu = (
-                    self._forced_cpu
-                    if self._process_alive()
-                    else audio_device_forces_cpu(None)
+                    self._forced_cpu if self._process_alive() else audio_device_forces_cpu(None)
                 )
             else:
                 forced_cpu = audio_device_forces_cpu(device)

@@ -283,9 +283,9 @@ def test_a_caller_that_sends_no_device_leaves_the_placement_alone(monkeypatch):
         ),
     )
 
-    sidecar.load("small", device = "cpu")   # Voice settings: the user picked CPU
-    sidecar.load("small", device = None)    # OpenAI-compatible route: no opinion
-    sidecar.load("small", device = "cpu")   # the next dictation
+    sidecar.load("small", device = "cpu")  # Voice settings: the user picked CPU
+    sidecar.load("small", device = None)  # OpenAI-compatible route: no opinion
+    sidecar.load("small", device = "cpu")  # the next dictation
 
     assert builds == ["cpu"], "only the first load should have built anything"
     assert sidecar._device == "cpu"
