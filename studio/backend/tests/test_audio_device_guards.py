@@ -195,7 +195,11 @@ def test_anything_that_might_hold_vram_is_still_evicted():
 # --- training eviction of the chat backend ---------------------------------
 
 
-def _inference_backend(active, entry, loading = ()):
+def _inference_backend(
+    active,
+    entry,
+    loading = (),
+):
     return types.SimpleNamespace(
         active_model_name = active,
         models = {active: entry} if active else {},
@@ -207,7 +211,6 @@ def test_a_cpu_placed_audio_model_survives_training_starting():
     """It holds no VRAM, so tearing it down cannot help the run. Mirrors the
     exemption the GGUF branch already makes for a CPU-only server."""
     from routes.training_vram import _resident_audio_holds_no_vram
-
     assert _resident_audio_holds_no_vram(
         _inference_backend("x/y", {"is_audio": True, "audio_cpu": True})
     )
@@ -227,7 +230,6 @@ def test_a_gpu_audio_model_is_still_torn_down_for_training():
 def test_a_load_in_flight_is_never_exempted():
     """Its placement is not recorded yet, and it is already taking memory."""
     from routes.training_vram import _resident_audio_holds_no_vram
-
     assert not _resident_audio_holds_no_vram(
         _inference_backend("x/y", {"audio_cpu": True}, loading = ("a/b",))
     )
