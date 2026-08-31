@@ -418,6 +418,22 @@ def can_load_chat_during_training(
         return False, {"reason": "probe_error", "error": str(e)}
 
 
+def _resident_audio_holds_no_vram(backend) -> bool:
+    """True only when the one resident model is native audio placed in CPU RAM.
+
+    Conservative like the STT probe: an in-flight load has no recorded placement
+    and a missing marker predates the option, so both answer False and the
+    backend is torn down as before.
+    """
+    try:
+        name = getattr(backend, "active_model_name", None)
+        if not name or getattr(backend, "loading_models", None):
+            return False
+        return bool(backend.models.get(name, {}).get("audio_cpu", False))
+    except Exception:  # noqa: BLE001 - a probe must never fail the release it precedes
+        return False
+
+
 def free_chat_models_for_training(reason: str) -> List[str]:
     """Unload every resident chat model (HF/MLX orchestrator + GGUF server) to free
     VRAM for training. Each backend isolated. Returns labels of what was freed."""
@@ -426,7 +442,15 @@ def free_chat_models_for_training(reason: str) -> List[str]:
     try:
         from core.inference import get_inference_backend
         inf = get_inference_backend()
-        if inf.active_model_name or inf.loading_models:
+        if _resident_audio_holds_no_vram(inf):
+            # CPU-placed native audio holds no VRAM, so killing it cannot help
+            # the run. Same exemption the GGUF branch below already makes.
+            logger.info(
+                "Keeping CPU-placed audio model '%s' through training (%s)",
+                inf.active_model_name,
+                reason,
+            )
+        elif inf.active_model_name or inf.loading_models:
             name = inf.active_model_name or next(iter(inf.loading_models), None)
             logger.info(
                 "Unloading inference model '%s' to free GPU memory for training (%s)",

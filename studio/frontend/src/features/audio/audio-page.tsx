@@ -112,6 +112,7 @@ import {
   canTransitionAudioMode,
   exactGgufLoadSelector,
   expectedGgufDownloadBytes,
+  isGgufTtsTarget,
   isTtsAudioType,
   macTtsPickAction,
   mergeGalleryPage,
@@ -981,6 +982,7 @@ export function AudioPage({
           if (controller.signal.aborted || !isCurrent()) return;
         }
         const wantsCpu = audioDevice === "cpu";
+        const isGgufLoad = isGgufTtsTarget({ repoId, ggufFilename, loadId });
         const res = await loadModel(
           {
             model_path: loadId || repoId,
@@ -996,7 +998,7 @@ export function AudioPage({
             audio_device: wantsCpu ? "cpu" : "auto",
             // GGUF ignores audio_device: llama.cpp offloads unless it is told
             // not to, so the same choice has to become zero layers there.
-            ...(wantsCpu && ggufFilename
+            ...(wantsCpu && isGgufLoad
               ? // biome-ignore lint/style/useNamingConvention: API schema
                 { gpu_memory_mode: "manual" as const, gpu_layers: 0 }
               : {}),
@@ -1025,7 +1027,7 @@ export function AudioPage({
           // than leave the control claiming a placement that did not happen.
           if (
             wantsCpu &&
-            !ggufFilename &&
+            !isGgufLoad &&
             !usesNativeAudioRuntime(repoId, res.audio_type)
           ) {
             toast.info(
@@ -1580,10 +1582,7 @@ export function AudioPage({
       if (ttsPickGeneration.current !== selectionGeneration) return;
       const exactGguf = exactGgufLoadSelector(meta);
       const isGguf = Boolean(
-        meta.isGguf ||
-          exactGguf ||
-          /(?:^|[-/])gguf(?:$|[-/])/i.test(id) ||
-          id.toLowerCase().endsWith(".gguf"),
+        meta.isGguf || isGgufTtsTarget({ repoId: id, ggufFilename: exactGguf }),
       );
       const ggufSibling = isGguf ? null : ggufSiblingFor(id);
       const nativeRuntime =
