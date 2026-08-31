@@ -11716,19 +11716,24 @@ def _native_audio_cpu_load(config, request) -> bool:
     )
 
 
-def _resident_audio_placement_matches(backend, config, request) -> bool:
+def _resident_audio_placement_matches(backend, request) -> bool:
     """False when the resident audio model is not where this request wants it.
 
-    Only native audio records a placement, so everything else matches and keeps
-    the already-loaded shortcut. An entry from before this existed has no key and
-    is read as GPU, which is what those loads did.
+    Reads the resident entry, not the requested config: this runs ahead of config
+    resolution, and the question is about the model already loaded. Only native
+    audio records a placement, so everything else keeps the shortcut. An entry
+    from before this existed has no key and is read as GPU, which is what those
+    loads did.
     """
+    from core.inference.audio_device import audio_device_forces_cpu
     from core.inference.native_audio import NATIVE_AUDIO_TYPES
 
-    if getattr(config, "audio_type", None) not in NATIVE_AUDIO_TYPES:
-        return True
     resident = backend.models.get(backend.active_model_name, {})
-    return bool(resident.get("audio_cpu", False)) == _native_audio_cpu_load(config, request)
+    if resident.get("audio_type") not in NATIVE_AUDIO_TYPES:
+        return True
+    return bool(resident.get("audio_cpu", False)) == audio_device_forces_cpu(
+        getattr(request, "audio_device", None)
+    )
 
 
 async def _preflight_native_audio_placement(
@@ -13189,7 +13194,7 @@ async def _load_model_impl(
                 and _mlx_runtime_settings_match(backend, request)
                 # A resident GPU audio model does not satisfy a CPU request. Without
                 # this the route reports already_loaded and the weights stay put.
-                and _resident_audio_placement_matches(backend, config, request)
+                and _resident_audio_placement_matches(backend, request)
             ):
                 api_monitor.discard(_load_event)  # nothing loaded, no monitor row
                 logger.info(f"Model already loaded (Unsloth): {model_log_label}, skipping reload")

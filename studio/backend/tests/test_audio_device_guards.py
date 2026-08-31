@@ -133,8 +133,8 @@ def test_minimax_on_cpu_is_refused_before_the_resident_model_is_evicted():
 # --- the already-loaded shortcut -------------------------------------------
 
 
-def _backend(audio_cpu):
-    entry = {"is_audio": True}
+def _backend(audio_cpu, audio_type = "higgs_tts2"):
+    entry = {"is_audio": True, "audio_type": audio_type}
     if audio_cpu is not None:
         entry["audio_cpu"] = audio_cpu
     return types.SimpleNamespace(active_model_name = "x/y", models = {"x/y": entry})
@@ -142,27 +142,27 @@ def _backend(audio_cpu):
 
 def test_a_resident_gpu_audio_model_does_not_satisfy_a_cpu_request():
     assert not ri._resident_audio_placement_matches(
-        _backend(audio_cpu = False), _audio(), _request("cpu")
+        _backend(audio_cpu = False), _request("cpu")
     )
 
 
 def test_a_resident_cpu_audio_model_satisfies_the_same_request_again():
-    assert ri._resident_audio_placement_matches(_backend(audio_cpu = True), _audio(), _request("cpu"))
+    assert ri._resident_audio_placement_matches(_backend(audio_cpu = True), _request("cpu"))
 
 
 def test_a_model_loaded_before_this_existed_is_read_as_gpu():
     """No recorded key means the load predates the option, which placed on GPU."""
     assert ri._resident_audio_placement_matches(
-        _backend(audio_cpu = None), _audio(), _request("auto")
+        _backend(audio_cpu = None), _request("auto")
     )
     assert not ri._resident_audio_placement_matches(
-        _backend(audio_cpu = None), _audio(), _request("cpu")
+        _backend(audio_cpu = None), _request("cpu")
     )
 
 
 def test_a_non_audio_model_keeps_the_shortcut():
     assert ri._resident_audio_placement_matches(
-        _backend(audio_cpu = None), _audio(audio_type = None), _request("cpu")
+        _backend(audio_cpu = None, audio_type = None), _request("cpu")
     )
 
 
@@ -212,7 +212,7 @@ def test_a_cpu_placed_audio_model_survives_training_starting():
     exemption the GGUF branch already makes for a CPU-only server."""
     from routes.training_vram import _resident_audio_holds_no_vram
     assert _resident_audio_holds_no_vram(
-        _inference_backend("x/y", {"is_audio": True, "audio_cpu": True})
+        _inference_backend("x/y", {"audio_type": "higgs_tts2", "audio_cpu": True})
     )
 
 
@@ -220,10 +220,12 @@ def test_a_gpu_audio_model_is_still_torn_down_for_training():
     from routes.training_vram import _resident_audio_holds_no_vram
 
     assert not _resident_audio_holds_no_vram(
-        _inference_backend("x/y", {"is_audio": True, "audio_cpu": False})
+        _inference_backend("x/y", {"audio_type": "higgs_tts2", "audio_cpu": False})
     )
     # No marker means the load predates the option, which placed on the GPU.
-    assert not _resident_audio_holds_no_vram(_inference_backend("x/y", {"is_audio": True}))
+    assert not _resident_audio_holds_no_vram(
+        _inference_backend("x/y", {"audio_type": "higgs_tts2"})
+    )
     assert not _resident_audio_holds_no_vram(_inference_backend(None, {}))
 
 
@@ -231,5 +233,33 @@ def test_a_load_in_flight_is_never_exempted():
     """Its placement is not recorded yet, and it is already taking memory."""
     from routes.training_vram import _resident_audio_holds_no_vram
     assert not _resident_audio_holds_no_vram(
-        _inference_backend("x/y", {"audio_cpu": True}, loading = ("a/b",))
+        _inference_backend(
+            "x/y", {"audio_type": "higgs_tts2", "audio_cpu": True}, loading = ("a/b",)
+        )
+    )
+
+
+def test_the_shortcut_reads_the_resident_model_not_the_requested_config():
+    """It runs ahead of config resolution, so reading a config there raised
+    UnboundLocalError and turned every repeat safetensors load into a 500."""
+    import inspect
+
+    assert list(inspect.signature(ri._resident_audio_placement_matches).parameters) == [
+        "backend",
+        "request",
+    ]
+
+
+def test_a_chat_model_is_never_exempted_even_if_it_carries_the_marker():
+    """UNSLOTH_AUDIO_DEVICE=cpu applies to audio loads only; the Unsloth backend
+    still puts a chat model on the card. Trusting a marker on one would start
+    training beside VRAM it was told was free."""
+    from routes.training_vram import _resident_audio_holds_no_vram
+
+    assert not _resident_audio_holds_no_vram(
+        _inference_backend("x/y", {"audio_cpu": True, "audio_type": None})
+    )
+    assert not _resident_audio_holds_no_vram(_inference_backend("x/y", {"audio_cpu": True}))
+    assert not _resident_audio_holds_no_vram(
+        _inference_backend("x/y", {"audio_cpu": True, "audio_type": "whisper"})
     )

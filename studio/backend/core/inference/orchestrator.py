@@ -28,6 +28,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Generator, Optional, Sequence, Tuple, Union
 from core.inference.audio_device import audio_device_forces_cpu
+from core.inference.native_audio import NATIVE_AUDIO_TYPES
 from core.inference.audio_errors import (
     AUDIO_UNSUPPORTED_CODE,
     AudioBackendUnsupportedError,
@@ -1788,8 +1789,13 @@ class InferenceOrchestrator:
                         "context_length": model_info.get("context_length"),
                         # Placement this model was loaded under, so the route's
                         # already-loaded shortcut can tell a CPU request from the
-                        # GPU model it would otherwise report as satisfied.
-                        "audio_cpu": audio_device_forces_cpu(audio_device),
+                        # GPU model it would otherwise report as satisfied. Only
+                        # native audio reads the preference; marking anything else
+                        # would tell training a GPU-resident model holds no VRAM.
+                        "audio_cpu": (
+                            model_info.get("audio_type") in NATIVE_AUDIO_TYPES
+                            and audio_device_forces_cpu(audio_device)
+                        ),
                     }
                     self.models[self.active_model_name].update(
                         _mlx_runtime_mirror_fields(model_info)
