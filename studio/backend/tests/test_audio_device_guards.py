@@ -24,9 +24,7 @@ from routes.training_vram import _stt_sidecar_holds_no_vram  # noqa: E402
 
 
 def _audio(audio_type = "higgs_tts2", **kwargs):
-    return types.SimpleNamespace(
-        audio_type = audio_type, is_lora = False, identifier = "x/y", **kwargs
-    )
+    return types.SimpleNamespace(audio_type = audio_type, is_lora = False, identifier = "x/y", **kwargs)
 
 
 def _request(audio_device = None):
@@ -113,9 +111,7 @@ def test_a_cpu_load_skips_the_vram_preflight_entirely(monkeypatch):
     monkeypatch.setattr(ri, "_native_audio_post_handoff_free_gb", _never)
     placement = types.SimpleNamespace(requested_gpu_ids = None)
 
-    result = asyncio.run(
-        ri._preflight_native_audio_placement(_audio(), _request("cpu"), placement)
-    )
+    result = asyncio.run(ri._preflight_native_audio_placement(_audio(), _request("cpu"), placement))
     assert result is placement
 
 
@@ -151,9 +147,7 @@ def test_a_resident_gpu_audio_model_does_not_satisfy_a_cpu_request():
 
 
 def test_a_resident_cpu_audio_model_satisfies_the_same_request_again():
-    assert ri._resident_audio_placement_matches(
-        _backend(audio_cpu = True), _audio(), _request("cpu")
-    )
+    assert ri._resident_audio_placement_matches(_backend(audio_cpu = True), _audio(), _request("cpu"))
 
 
 def test_a_model_loaded_before_this_existed_is_read_as_gpu():
@@ -177,12 +171,8 @@ def test_a_non_audio_model_keeps_the_shortcut():
 
 def test_a_cpu_placed_sidecar_is_left_alone_when_training_claims_vram():
     assert _stt_sidecar_holds_no_vram(types.SimpleNamespace(device = "cpu"))
-    assert _stt_sidecar_holds_no_vram(
-        types.SimpleNamespace(device = "whisper.cpp", _forced_cpu = True)
-    )
-    assert _stt_sidecar_holds_no_vram(
-        types.SimpleNamespace(device = "llama.cpp", _gpu_disabled = True)
-    )
+    assert _stt_sidecar_holds_no_vram(types.SimpleNamespace(device = "whisper.cpp", _forced_cpu = True))
+    assert _stt_sidecar_holds_no_vram(types.SimpleNamespace(device = "llama.cpp", _gpu_disabled = True))
 
 
 def test_anything_that_might_hold_vram_is_still_evicted():
