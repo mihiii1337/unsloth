@@ -30,6 +30,7 @@ import {
   loadSttModel,
   releaseTtsAudioUrl,
   startSttDownload,
+  sttEngineFor,
   unloadSttModel,
   useExternalProvidersStore,
   validateSttModel,
@@ -1149,7 +1150,12 @@ export function VoiceTab() {
                 const next = value === "cpu" ? "cpu" : "auto";
                 if (next === sttDevicePreference) return;
                 // Frees the old device now rather than at the next dictation.
-                void unloadSttModel().catch(() => {});
+                // Scoped to this model: another surface can swap the resident
+                // one before the request lands, and moving our own placement
+                // must not evict theirs.
+                void unloadSttModel(sttEngineFor(sttModel), sttModel).catch(
+                  () => {},
+                );
                 setSttPhase("on-demand");
                 setSttDevice(null);
                 setSttDevicePreference(next);
