@@ -2655,10 +2655,13 @@ export function AudioPage({
                       { value: "cpu", label: "CPU RAM" },
                     ]}
                   />
+                  {/* Phrased as what the next load will do, not as the resident
+                      model's state: a model loaded by another tab or client can
+                      be on the other device, and status does not report it. */}
                   <p className="text-ui-11p5 leading-snug text-muted-foreground">
                     {audioDevice === "cpu"
-                      ? "The model is held in system RAM. Generation is slower, but no GPU memory is used."
-                      : "The GPU is used when there is one, and the CPU otherwise."}
+                      ? "New loads go into system RAM instead of the GPU. Slower to generate, and no GPU memory is used."
+                      : "New loads use the GPU when there is one, and the CPU otherwise."}
                   </p>
                 </div>
                 <AdvancedDisclosure

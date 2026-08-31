@@ -418,28 +418,6 @@ def can_load_chat_during_training(
         return False, {"reason": "probe_error", "error": str(e)}
 
 
-def _resident_audio_holds_no_vram(backend) -> bool:
-    """True only when the one resident model is native audio placed in CPU RAM.
-
-    Conservative like the STT probe: an in-flight load has no recorded placement
-    and a missing marker predates the option, so both answer False and the
-    backend is torn down as before.
-    """
-    try:
-        from core.inference.native_audio import NATIVE_AUDIO_TYPES
-
-        name = getattr(backend, "active_model_name", None)
-        if not name or getattr(backend, "loading_models", None):
-            return False
-        entry = backend.models.get(name, {})
-        # Both sides check the type. Only native audio reads the placement
-        # preference, so a marker on anything else is wrong, and trusting it
-        # here would start training beside a model still holding the card.
-        return entry.get("audio_type") in NATIVE_AUDIO_TYPES and bool(entry.get("audio_cpu", False))
-    except Exception:  # noqa: BLE001 - a probe must never fail the release it precedes
-        return False
-
-
 def free_chat_models_for_training(reason: str) -> List[str]:
     """Unload every resident chat model (HF/MLX orchestrator + GGUF server) to free
     VRAM for training. Each backend isolated. Returns labels of what was freed."""
@@ -448,15 +426,11 @@ def free_chat_models_for_training(reason: str) -> List[str]:
     try:
         from core.inference import get_inference_backend
         inf = get_inference_backend()
-        if _resident_audio_holds_no_vram(inf):
-            # CPU-placed native audio holds no VRAM, so killing it cannot help
-            # the run. Same exemption the GGUF branch below already makes.
-            logger.info(
-                "Keeping CPU-placed audio model '%s' through training (%s)",
-                inf.active_model_name,
-                reason,
-            )
-        elif inf.active_model_name or inf.loading_models:
+        # No CPU exemption here, unlike the GGUF branch below and the STT
+        # sidecars: this worker runs detect_hardware() before it places
+        # anything, and that calls torch.cuda.get_device_properties, so the
+        # process holds a CUDA context whatever the weights are on.
+        if inf.active_model_name or inf.loading_models:
             name = inf.active_model_name or next(iter(inf.loading_models), None)
             logger.info(
                 "Unloading inference model '%s' to free GPU memory for training (%s)",
