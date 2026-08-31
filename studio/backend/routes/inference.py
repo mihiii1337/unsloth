@@ -11701,11 +11701,40 @@ async def _prepare_load_placement(
     return _LoadPlacement(requested, resolved, is_vulkan, diffusion_kind)
 
 
+def _native_audio_cpu_load(config, request) -> bool:
+    """True when this load is a native audio model the user placed in CPU RAM.
+
+    Gated on the audio type on purpose: audio_device is documented as ignored
+    for everything else, so a chat model cannot send it to skip the VRAM guards
+    that read this.
+    """
+    from core.inference.audio_device import audio_device_forces_cpu
+    from core.inference.native_audio import NATIVE_AUDIO_TYPES
+
+    return getattr(config, "audio_type", None) in NATIVE_AUDIO_TYPES and audio_device_forces_cpu(
+        getattr(request, "audio_device", None)
+    )
+
+
+def _resident_audio_placement_matches(backend, config, request) -> bool:
+    """False when the resident audio model is not where this request wants it.
+
+    Only native audio records a placement, so everything else matches and keeps
+    the already-loaded shortcut. An entry from before this existed has no key and
+    is read as GPU, which is what those loads did.
+    """
+    from core.inference.native_audio import NATIVE_AUDIO_TYPES
+
+    if getattr(config, "audio_type", None) not in NATIVE_AUDIO_TYPES:
+        return True
+    resident = backend.models.get(backend.active_model_name, {})
+    return bool(resident.get("audio_cpu", False)) == _native_audio_cpu_load(config, request)
+
+
 async def _preflight_native_audio_placement(
     config: ModelConfig, request: LoadRequest | ValidateModelRequest, placement: _LoadPlacement
 ) -> _LoadPlacement:
     """Resolve native-audio placement before a resident model can be evicted."""
-    from core.inference.audio_device import audio_device_forces_cpu
     from core.inference.native_audio import NATIVE_AUDIO_TYPES
 
     audio_type = getattr(config, "audio_type", None)
@@ -11729,7 +11758,19 @@ async def _preflight_native_audio_placement(
     # nothing on the card, and sizing it anyway would refuse the load on a full
     # GPU, which is what this option is for. minimax_music3 is refused on CPU
     # by the backend.
-    if audio_device_forces_cpu(getattr(request, "audio_device", None)):
+    if _native_audio_cpu_load(config, request):
+        if audio_type == "minimax_music3":
+            # Refused here rather than in the worker: past this point the switch
+            # has already evicted the resident model, so a load that cannot
+            # succeed would cost the user the one they had.
+            raise HTTPException(
+                status_code = 400,
+                detail = (
+                    "MiniMax Music 3 cannot be loaded into CPU RAM: its official local "
+                    "runtime requires an NVIDIA CUDA GPU. Set the audio device back to "
+                    "Auto to load this model."
+                ),
+            )
         return placement
 
     automatic = not placement.requested_gpu_ids
@@ -11991,6 +12032,12 @@ def _guard_chat_load_against_training(
     """
     from core.training import get_training_backend
     from routes.training_vram import can_load_chat_during_training
+
+    # Nothing to budget: the weights go to CPU RAM. Ahead of the diffusion branch
+    # below, which refuses unconditionally and would 409 a load that takes no VRAM.
+    # Same reasoning as the paravirtual CPU pin further down.
+    if _native_audio_cpu_load(config, request):
+        return
 
     requested_gpu_ids = placement.requested_gpu_ids
     gpu_ids_are_vulkan_ordinals = placement.gpu_ids_are_vulkan_ordinals
@@ -13137,9 +13184,13 @@ async def _load_model_impl(
                     await asyncio.to_thread(acquire_for, CHAT)
                 return reused
         if not (request.gguf_variant or is_direct_gguf_request):
-            if _same_loaded_identifier(
-                backend.active_model_name, model_identifier
-            ) and _mlx_runtime_settings_match(backend, request):
+            if (
+                _same_loaded_identifier(backend.active_model_name, model_identifier)
+                and _mlx_runtime_settings_match(backend, request)
+                # A resident GPU audio model does not satisfy a CPU request. Without
+                # this the route reports already_loaded and the weights stay put.
+                and _resident_audio_placement_matches(backend, config, request)
+            ):
                 api_monitor.discard(_load_event)  # nothing loaded, no monitor row
                 logger.info(f"Model already loaded (Unsloth): {model_log_label}, skipping reload")
                 # A no-op Unsloth load of a preview-owned checkpoint still claims it.
@@ -13415,7 +13466,10 @@ async def _load_model_impl(
 
         # ...but only when this load will actually use the GPU, exactly as the image and video loaders gate on their device:
         # a manual gpu_layers=0 load runs on CPU, so taking the arbiter would cancel an image/video generation for nothing.
-        chat_load_needs_gpu = not (
+        # A CPU-placed native audio model is the non-GGUF case of the same thing:
+        # it takes no VRAM, so acquiring the arbiter would cancel an image or
+        # video generation for nothing.
+        chat_load_needs_gpu = not _native_audio_cpu_load(config, request) and not (
             config.is_gguf
             and await asyncio.to_thread(
                 zero_vram_chat_load,

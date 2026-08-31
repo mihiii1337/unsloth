@@ -980,6 +980,7 @@ export function AudioPage({
             );
           if (controller.signal.aborted || !isCurrent()) return;
         }
+        const wantsCpu = audioDevice === "cpu";
         const res = await loadModel(
           {
             model_path: loadId || repoId,
@@ -992,7 +993,13 @@ export function AudioPage({
             gguf_variant: ggufFilename ?? null,
             trust_remote_code: trustRemoteCode,
             approved_remote_code_fingerprint: approvedRemoteCodeFingerprint,
-            audio_device: audioDevice === "cpu" ? "cpu" : "auto",
+            audio_device: wantsCpu ? "cpu" : "auto",
+            // GGUF ignores audio_device: llama.cpp offloads unless it is told
+            // not to, so the same choice has to become zero layers there.
+            ...(wantsCpu && ggufFilename
+              ? // biome-ignore lint/style/useNamingConvention: API schema
+                { gpu_memory_mode: "manual" as const, gpu_layers: 0 }
+              : {}),
           },
           {
             signal: controller.signal,
@@ -1014,6 +1021,18 @@ export function AudioPage({
           toast.success(`Model loaded (${res.audio_type ?? "audio"})`, {
             id: toastId,
           });
+          // Only the native runtime and GGUF can be held in RAM. Say so rather
+          // than leave the control claiming a placement that did not happen.
+          if (
+            wantsCpu &&
+            !ggufFilename &&
+            !usesNativeAudioRuntime(repoId, res.audio_type)
+          ) {
+            toast.info(
+              "This model does not support CPU RAM yet, so it loaded on the GPU.",
+              { duration: 6000 },
+            );
+          }
         } else {
           toast.error(`${repoId} loaded but is not a supported TTS model.`, {
             id: toastId,
@@ -2619,14 +2638,16 @@ export function AudioPage({
                   <PillTabs
                     ariaLabel="Load model into"
                     value={audioDevice === "cpu" ? "cpu" : "auto"}
+                    // Disabled while a task runs: the eject below is the only
+                    // thing that applies the change, and it cannot interrupt a
+                    // load or a generation. Enabled again once the work settles.
+                    disabled={busy !== null || isRecording}
                     onValueChange={(value) => {
                       const next = value === "cpu" ? "cpu" : "auto";
                       if (next === audioDevice) return;
                       setAudioDeviceState(next);
                       // Otherwise the choice does nothing until the next swap.
-                      if (ttsLoaded && busy === null && !isRecording) {
-                        handleEject();
-                      }
+                      if (ttsLoaded) handleEject();
                     }}
                     fit={true}
                     className="h-[30px] self-start [&>button]:h-[30px] [&>button]:px-6"

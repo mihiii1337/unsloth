@@ -27,6 +27,7 @@ import uuid
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Generator, Optional, Sequence, Tuple, Union
+from core.inference.audio_device import audio_device_forces_cpu
 from core.inference.audio_errors import (
     AUDIO_UNSUPPORTED_CODE,
     AudioBackendUnsupportedError,
@@ -1785,6 +1786,10 @@ class InferenceOrchestrator:
                         "audio_type": model_info.get("audio_type"),
                         "has_audio_input": model_info.get("has_audio_input", False),
                         "context_length": model_info.get("context_length"),
+                        # Placement this model was loaded under, so the route's
+                        # already-loaded shortcut can tell a CPU request from the
+                        # GPU model it would otherwise report as satisfied.
+                        "audio_cpu": audio_device_forces_cpu(audio_device),
                     }
                     self.models[self.active_model_name].update(
                         _mlx_runtime_mirror_fields(model_info)
