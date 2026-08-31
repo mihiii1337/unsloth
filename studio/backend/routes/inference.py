@@ -11705,6 +11705,7 @@ async def _preflight_native_audio_placement(
     config: ModelConfig, request: LoadRequest | ValidateModelRequest, placement: _LoadPlacement
 ) -> _LoadPlacement:
     """Resolve native-audio placement before a resident model can be evicted."""
+    from core.inference.audio_device import audio_device_forces_cpu
     from core.inference.native_audio import NATIVE_AUDIO_TYPES
 
     audio_type = getattr(config, "audio_type", None)
@@ -11723,6 +11724,13 @@ async def _preflight_native_audio_placement(
             status_code = 400,
             detail = "Higgs TTS requires Python 3.10 or newer in Studio.",
         )
+
+    # After the runtime guards, before every VRAM question. A CPU load puts
+    # nothing on the card, and sizing it anyway would refuse the load on a full
+    # GPU, which is what this option is for. minimax_music3 is refused on CPU
+    # by the backend.
+    if audio_device_forces_cpu(getattr(request, "audio_device", None)):
+        return placement
 
     automatic = not placement.requested_gpu_ids
     availability = (
@@ -13798,6 +13806,7 @@ async def _load_model_impl(
                 chat_template_override = request.chat_template_override,
                 load_cancel_event = load_cancel_event,
                 post_handoff_expected_free_gb = post_chat_handoff_expected_free_gb,
+                audio_device = request.audio_device,
             )
         except Exception:
             _restore_marker_if_prior_preview_still_resident()
@@ -17091,7 +17100,11 @@ async def stt_load(
         _await_stt_disconnect_then_cancel(request, sidecar, cancel_event)
     )
     try:
-        await asyncio.to_thread(load_stt, payload.model, engine, cancel_event)
+        await asyncio.to_thread(
+            functools.partial(
+                load_stt, payload.model, engine, cancel_event, device = payload.device
+            )
+        )
     except SttModelNotDownloadedError as e:
         raise HTTPException(status_code = 409, detail = str(e))
     except SttUnavailableError as e:
@@ -17178,10 +17191,13 @@ async def _transcribe_audio_bytes(
     fast: bool,
     engine: Optional[str] = None,
     request: Optional[Request] = None,
+    device: Optional[str] = None,
 ) -> JSONResponse:
     """Run STT for already-decoded request bytes."""
     return JSONResponse(
-        content = await _transcribe_audio_result(raw, model, language, fast, engine, request)
+        content = await _transcribe_audio_result(
+            raw, model, language, fast, engine, request, device
+        )
     )
 
 
@@ -17192,6 +17208,7 @@ async def _transcribe_audio_result(
     fast: bool,
     engine: Optional[str] = None,
     request: Optional[Request] = None,
+    device: Optional[str] = None,
 ) -> dict:
     """STT for already-decoded bytes, sidecar errors mapped to HTTP statuses.
     Returns the sidecar's result dict so callers own the response shape."""
@@ -17235,7 +17252,9 @@ async def _transcribe_audio_result(
         # timers fired, which is what OOMs a device that fits either alone. A no-op once
         # the model is resident, so the steady state costs a residency check.
         load_stt, _ = _stt_lifecycle()
-        await asyncio.to_thread(load_stt, model, serving_engine, cancel_event)
+        await asyncio.to_thread(
+            functools.partial(load_stt, model, serving_engine, cancel_event, device = device)
+        )
         if cancel_event is None:
             result = await asyncio.to_thread(sidecar.transcribe, raw, model, language, fast)
         else:
@@ -17310,7 +17329,13 @@ async def transcribe_audio(
     # Same disconnect cancellation as the raw and OpenAI routes: without the request
     # a client that goes away leaves the sidecar transcribing under its lock.
     return await _transcribe_audio_bytes(
-        raw, payload.model, payload.language, payload.fast, payload.engine, request
+        raw,
+        payload.model,
+        payload.language,
+        payload.fast,
+        payload.engine,
+        request,
+        payload.device,
     )
 
 
@@ -17321,6 +17346,7 @@ async def transcribe_audio_raw(
     language: Optional[str] = None,
     fast: bool = False,
     engine: Optional[str] = None,
+    device: Optional[str] = None,
     current_subject: str = Depends(get_current_subject),
 ):
     """Transcribe a raw audio body without base64 or JSON conversion overhead."""
@@ -17333,7 +17359,7 @@ async def transcribe_audio_raw(
         chunks.append(chunk)
     return JSONResponse(
         content = await _transcribe_audio_result(
-            b"".join(chunks), model, language, fast, engine, request
+            b"".join(chunks), model, language, fast, engine, request, device
         )
     )
 

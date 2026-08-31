@@ -1367,7 +1367,13 @@ def run_inference_process(
 
     # ── 3. Create inference backend and load initial model ──
     try:
-        backend = InferenceBackend()
+        # Native audio picks its device in __init__, so the preference has to
+        # arrive there. The Unsloth backend places weights via device_map.
+        backend = (
+            InferenceBackend(device_preference = config.get("audio_device"))
+            if _native_audio_worker
+            else InferenceBackend()
+        )
 
         _send_response(
             resp_queue,

@@ -801,7 +801,12 @@ class MtmdSttSidecar:
         self,
         model: Optional[str] = None,
         request_cancel_event: Optional[threading.Event] = None,
+        device: Optional[str] = None,
     ) -> None:
+        """``device`` is the user's audio device preference; ``cpu`` starts
+        llama-server at ``-ngl 0``, the same offload training already forces."""
+        from core.inference.audio_device import audio_device_forces_cpu
+
         if request_cancel_event is not None and request_cancel_event.is_set():
             raise SttTranscriptionCancelledError("Transcription cancelled.")
         self._raise_if_update_in_progress()
@@ -821,6 +826,7 @@ class MtmdSttSidecar:
                 binary,
                 request_cancel_event,
                 path_revision = path_revision,
+                force_cpu = audio_device_forces_cpu(device),
             )
 
     def _load_locked(
@@ -830,12 +836,14 @@ class MtmdSttSidecar:
         request_cancel_event: Optional[threading.Event] = None,
         *,
         path_revision: Optional[int] = None,
+        force_cpu: bool = False,
     ) -> None:
         if path_revision is None:
             from utils.llama_cpp_path_settings import custom_llama_cpp_path_revision
             path_revision = custom_llama_cpp_path_revision()
         with self._lock:
-            training = _training_active()
+            # Both mean "no offload", which _gpu_disabled already tracks.
+            training = _training_active() or force_cpu
             if (
                 self._process_alive()
                 and self._model_id == model_id
@@ -886,7 +894,7 @@ class MtmdSttSidecar:
             # check cannot come back to cancel this load. Publishing _loading
             # first covers the other order, so between them every training start
             # either cancels this load or is seen by it.
-            training = _training_active()
+            training = _training_active() or force_cpu
         try:
             sock, port = self._reserve_free_port()
             cmd = [

@@ -1541,6 +1541,7 @@ class InferenceOrchestrator:
         chat_template_override: Optional[str] = None,
         load_cancel_event: Optional[threading.Event] = None,
         post_handoff_expected_free_gb: Optional[dict[int, float]] = None,
+        audio_device: Optional[str] = None,
     ) -> bool:
         """Load a model for inference.
 
@@ -1580,6 +1581,8 @@ class InferenceOrchestrator:
                 else None,
                 "mlx_kv_bits": mlx_kv_bits,
                 "chat_template_override": chat_template_override,
+                # Read only by the native audio backend's constructor in the worker.
+                "audio_device": audio_device,
             }
             resolved_gpu_ids, gpu_selection = prepare_gpu_selection(
                 gpu_ids,
@@ -1877,10 +1880,14 @@ class InferenceOrchestrator:
         model: Optional[str],
         engine: str,
         request_cancel_event: Optional[threading.Event] = None,
+        device: Optional[str] = None,
     ) -> None:
-        """Make a dictation model resident on its sidecar."""
+        """Make a dictation model resident on its sidecar.
+
+        ``device`` is the user's audio device preference (``auto``/``cpu``/``gpu``).
+        """
         from core.inference import stt_registry
-        stt_registry.load(model, engine, request_cancel_event)
+        stt_registry.load(model, engine, request_cancel_event, device = device)
 
     def unload_stt_model(
         self,

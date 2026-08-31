@@ -253,6 +253,16 @@ class LoadRequest(BaseModel):
             "non-GGUF models."
         ),
     )
+    audio_device: Optional[Literal["auto", "cpu", "gpu"]] = Field(
+        None,
+        description = (
+            "Native audio (TTS / music) models only: where to hold the weights. "
+            "'cpu' keeps them in CPU RAM rather than the GPU -- slower generation, "
+            "but it leaves VRAM for other models and runs checkpoints too large for "
+            "the card. 'gpu' prefers the accelerator; 'auto' (default) detects. "
+            "Ignored for every non-audio model."
+        ),
+    )
     gpu_memory_mode: Literal["auto", "manual"] = Field(
         "auto",
         description = (
@@ -393,6 +403,14 @@ class TranscribeRequest(BaseModel):
         None,
         description = "STT engine: 'transformers' (default) or 'gguf' (whisper.cpp)",
     )
+    device: Optional[Literal["auto", "cpu", "gpu"]] = Field(
+        None,
+        description = (
+            "Where to hold the model: 'cpu' keeps it in CPU RAM, 'gpu' prefers the "
+            "accelerator, 'auto' (default) detects. Applies when this request has to "
+            "load the model; a resident model on another device is reloaded to honour it."
+        ),
+    )
 
 
 class SttLoadRequest(BaseModel):
@@ -402,6 +420,13 @@ class SttLoadRequest(BaseModel):
     engine: Optional[str] = Field(
         None,
         description = "STT engine: 'transformers' (default) or 'gguf' (whisper.cpp)",
+    )
+    device: Optional[Literal["auto", "cpu", "gpu"]] = Field(
+        None,
+        description = (
+            "Where to hold the model: 'cpu' keeps it in CPU RAM rather than the GPU, "
+            "'gpu' prefers the accelerator, 'auto' (default) detects."
+        ),
     )
 
 

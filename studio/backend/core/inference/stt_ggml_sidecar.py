@@ -723,6 +723,9 @@ class GgmlSttSidecar:
         self._process: Optional[subprocess.Popen] = None
         self._port: Optional[int] = None
         self._model_id: Optional[str] = None
+        # --no-gpu at the user's request. Tracked because it varies per
+        # request, unlike the training and install reasons for the same flag.
+        self._forced_cpu = False
         self._idle_timer: Optional[threading.Timer] = None
         self._idle_generation = 0
         self._keep_alive_seconds = keep_alive_seconds
@@ -806,6 +809,7 @@ class GgmlSttSidecar:
         self._process = None
         self._port = None
         self._model_id = None
+        self._forced_cpu = False
         if process is not None and process.poll() is None:
             process.terminate()
             try:
@@ -947,25 +951,40 @@ class GgmlSttSidecar:
         self,
         model: Optional[str] = None,
         request_cancel_event: Optional[threading.Event] = None,
+        device: Optional[str] = None,
     ) -> None:
-        """Start (or switch) whisper-server for the requested curated model."""
+        """Start (or switch) whisper-server for the requested curated model.
+
+        ``device`` is the user's audio device preference; ``cpu`` starts the server
+        with ``--no-gpu``, the same flag training and a CPU-only install already use.
+        """
+        from core.inference.audio_device import audio_device_forces_cpu
+
         if request_cancel_event is not None and request_cancel_event.is_set():
             raise SttTranscriptionCancelledError("Transcription cancelled.")
         self._raise_if_update_in_progress()
         model_id = resolve_ggml_model_id(model)
+        force_cpu = audio_device_forces_cpu(device)
         with self._lock:
             if request_cancel_event is not None and request_cancel_event.is_set():
                 raise SttTranscriptionCancelledError("Transcription cancelled.")
             self._raise_if_update_in_progress()
             binary = ensure_engine_available()
-            if self._process_alive() and self._model_id == model_id:
+            if (
+                self._process_alive()
+                and self._model_id == model_id
+                and self._forced_cpu == force_cpu
+            ):
                 self._schedule_idle_unload_locked()
                 return
             model_path = self._ensure_model_downloaded(model_id)
             reservation, port = self._reserve_free_port()
             command = [binary, "-m", model_path, "--host", "127.0.0.1", "--port", str(port)]
             marker = _whisper_install_marker(binary)
-            if _training_active():
+            if force_cpu:
+                # Tracked, so the reuse check above restarts on a change.
+                command.append("--no-gpu")
+            elif _training_active():
                 # Keep whisper.cpp off the accelerator during training (like the
                 # Transformers sidecar's CPU choice) so a mid-training dictation
                 # cannot reclaim the VRAM training just freed.
@@ -1020,6 +1039,7 @@ class GgmlSttSidecar:
                 self._process = process
                 self._port = port
                 self._model_id = model_id
+                self._forced_cpu = force_cpu
                 self._schedule_idle_unload_locked()
             finally:
                 reservation.close()  # no-op when already released before spawn

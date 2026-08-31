@@ -84,6 +84,7 @@ import {
   trackSttDownload,
 } from "@/features/settings/lib/stt-download-mirror";
 import { sttModelSize } from "@/features/settings/stores/stt-model-catalog";
+import { usePersistedChoice } from "@/hooks/use-persisted-choice";
 import { usePersistedToggle } from "@/hooks/use-persisted-toggle";
 import { useSettingsDialogStore } from "@/features/settings";
 import { useScrollFades } from "@/hooks/use-scroll-fades";
@@ -505,6 +506,12 @@ export function AudioPage({
   } = useScrollFades();
   const [advancedOpen, setAdvancedOpen] = usePersistedToggle(
     "unsloth_audio_advanced_open",
+  );
+  // Read at load time. The handler below ejects the resident model so a
+  // change actually takes effect.
+  const [audioDevice, setAudioDeviceState] = usePersistedChoice(
+    "unsloth_audio_device",
+    "auto",
   );
 
   const refreshStatus = useCallback(async () => {
@@ -985,6 +992,7 @@ export function AudioPage({
             gguf_variant: ggufFilename ?? null,
             trust_remote_code: trustRemoteCode,
             approved_remote_code_fingerprint: approvedRemoteCodeFingerprint,
+            audio_device: audioDevice === "cpu" ? "cpu" : "auto",
           },
           {
             signal: controller.signal,
@@ -1036,7 +1044,7 @@ export function AudioPage({
         if (activeRef.current) replayQueuedTtsPick();
       }
     },
-    [refreshStatus],
+    [refreshStatus, audioDevice],
   );
 
   // Stage uncached Hub GGUFs through the shared manager so Audio gets the same
@@ -2602,6 +2610,37 @@ export function AudioPage({
                     />
                   </Field>
                 ) : null}
+                {/* Field inlined: its label needs a form control to point
+                    at, and PillTabs is a tablist with its own name. */}
+                <div className="grid gap-1.5">
+                  <span className="text-ui-13 font-medium text-foreground">
+                    Load model into
+                  </span>
+                  <PillTabs
+                    ariaLabel="Load model into"
+                    value={audioDevice === "cpu" ? "cpu" : "auto"}
+                    onValueChange={(value) => {
+                      const next = value === "cpu" ? "cpu" : "auto";
+                      if (next === audioDevice) return;
+                      setAudioDeviceState(next);
+                      // Otherwise the choice does nothing until the next swap.
+                      if (ttsLoaded && busy === null && !isRecording) {
+                        handleEject();
+                      }
+                    }}
+                    fit={true}
+                    className="h-[30px] self-start [&>button]:h-[30px] [&>button]:px-6"
+                    tabs={[
+                      { value: "auto", label: "GPU when available" },
+                      { value: "cpu", label: "CPU RAM" },
+                    ]}
+                  />
+                  <p className="text-ui-11p5 leading-snug text-muted-foreground">
+                    {audioDevice === "cpu"
+                      ? "The model is held in system RAM. Generation is slower, but no GPU memory is used."
+                      : "The GPU is used when there is one, and the CPU otherwise."}
+                  </p>
+                </div>
                 <AdvancedDisclosure
                   open={advancedOpen}
                   onOpenChange={setAdvancedOpen}
